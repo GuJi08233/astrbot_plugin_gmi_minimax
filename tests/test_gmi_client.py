@@ -13,6 +13,7 @@ spec.loader.exec_module(gmi_client)
 
 GMIClient = gmi_client.GMIClient
 GMIError = gmi_client.GMIError
+build_music_filename = gmi_client.build_music_filename
 build_music_payload = gmi_client.build_music_payload
 build_tts_payload = gmi_client.build_tts_payload
 build_voice_clone_payload = gmi_client.build_voice_clone_payload
@@ -84,6 +85,30 @@ class PayloadBuilderTest(unittest.TestCase):
             build_voice_clone_payload(
                 "hi", "https://a.com/v.mp3", prompt_audio="https://a.com/p.mp3"
             )
+
+
+class MusicFilenameTest(unittest.TestCase):
+    def test_title_is_preferred(self):
+        name = build_music_filename("大漠孤烟", "[Verse]\n歌词第一句", "ab12cd", "mp3")
+        self.assertEqual(name, "大漠孤烟_ab12cd.mp3")
+
+    def test_falls_back_to_first_lyric_line_skipping_tags(self):
+        name = build_music_filename(
+            "", "[Verse]\n青石小巷雨初晴\n第二句", "ab12cd", "mp3"
+        )
+        self.assertEqual(name, "青石小巷雨初晴_ab12cd.mp3")
+
+    def test_sanitizes_unsafe_characters_and_truncates(self):
+        name = build_music_filename('a/b\\c:d*e?"f<g>h|i j', "", "x1", "mp3")
+        self.assertEqual(name, "a_b_c_d_e_f_g_h_i_j_x1.mp3")
+        long_name = build_music_filename("甲" * 40, "", "x1", "mp3")
+        self.assertEqual(long_name, "甲" * 24 + "_x1.mp3")
+
+    def test_empty_everything_falls_back_to_song(self):
+        self.assertEqual(build_music_filename("", "", "x1", "mp3"), "song_x1.mp3")
+        self.assertEqual(
+            build_music_filename("", "[Chorus]", "x1", ".wav"), "song_x1.wav"
+        )
 
 
 class ExtractMediaUrlsTest(unittest.TestCase):

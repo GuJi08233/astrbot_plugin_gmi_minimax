@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import uuid
 from pathlib import Path
 
@@ -140,6 +141,28 @@ def build_voice_clone_payload(
         payload["prompt_audio"] = prompt_audio
         payload["prompt_text"] = prompt_text
     return payload
+
+
+_FILENAME_UNSAFE = re.compile(r'[\\/:*?"<>|\r\n\t ]+')
+_STRUCTURE_TAG_LINE = re.compile(r"^[\[(（【][^\]）】)]{1,20}[\])）】]$")
+
+
+def build_music_filename(title: str, lyrics: str, job_id: str, ext: str) -> str:
+    """Build a recognizable music filename like ``歌名_ab12cd.mp3``.
+
+    Falls back to the first non-structure-tag lyric line when no title
+    is given, and to "song" when both are empty.
+    """
+    base = str(title or "").strip()
+    if not base:
+        for line in str(lyrics or "").splitlines():
+            line = line.strip()
+            if line and not _STRUCTURE_TAG_LINE.match(line):
+                base = line
+                break
+    base = _FILENAME_UNSAFE.sub("_", base).strip("_.")[:24].strip("_.") or "song"
+    suffix = str(ext or "mp3").lstrip(".")
+    return f"{base}_{job_id}.{suffix}"
 
 
 def extract_media_urls(detail: dict) -> list[str]:

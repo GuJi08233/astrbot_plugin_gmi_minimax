@@ -15,6 +15,7 @@ from astrbot.core.utils.astrbot_path import get_astrbot_temp_path
 from .gmi_client import (
     GMIClient,
     GMIError,
+    build_music_filename,
     build_music_payload,
     build_tts_payload,
     build_voice_clone_payload,
@@ -86,9 +87,14 @@ class Main(star.Star):
     # 生成与发送
     # ------------------------------------------------------------------ #
 
-    async def _generate_music(self, lyrics: str, prompt: str) -> Path:
+    async def _generate_music(
+        self, lyrics: str, prompt: str, *, title: str = "", job_id: str = ""
+    ) -> Path:
         cfg = self._section("music")
         audio_format = str(cfg.get("format", "mp3") or "mp3")
+        filename = build_music_filename(
+            title, lyrics, job_id or uuid.uuid4().hex[:6], audio_format
+        )
         payload = build_music_payload(
             lyrics,
             prompt,
@@ -97,7 +103,9 @@ class Main(star.Star):
             audio_format=audio_format,
         )
         detail = await self._client.generate(MUSIC_MODEL, payload, retries=2)
-        return await self._download_first_media(detail, "music", audio_format)
+        return await self._download_first_media(
+            detail, "music", audio_format, filename=filename
+        )
 
     async def _generate_tts(self, text: str, emotion: str = "") -> Path:
         cfg = self._section("tts")
@@ -141,15 +149,13 @@ class Main(star.Star):
         return await self._download_first_media(detail, "clone", "mp3")
 
     async def _download_first_media(
-        self, detail: dict, prefix: str, audio_format: str
+        self, detail: dict, prefix: str, audio_format: str, filename: str = ""
     ) -> Path:
         urls = extract_media_urls(detail)
         if not urls:
             raise GMIError("GMI 未返回音频链接")
-        dest = (
-            self._media_dir / f"gmi_{prefix}_{int(time.time() * 1000)}.{audio_format}"
-        )
-        return await self._client.download(urls[0], dest)
+        name = filename or f"gmi_{prefix}_{int(time.time() * 1000)}.{audio_format}"
+        return await self._client.download(urls[0], self._media_dir / name)
 
     async def _send_record(self, event: AstrMessageEvent, path: Path) -> None:
         await event.send(MessageChain(chain=[Record(file=str(path))]))
@@ -220,12 +226,13 @@ class Main(star.Star):
             return None
 
     def _spawn_music_task(
-        self, event: AstrMessageEvent, lyrics: str, prompt: str
+        self, event: AstrMessageEvent, lyrics: str, prompt: str, title: str = ""
     ) -> str:
         """Start a background music job and return its job id."""
         job_id = uuid.uuid4().hex[:6]
         self._music_jobs[job_id] = {
             "status": "生成中",
+            "title": title[:30],
             "prompt": prompt[:50],
             "lyrics": lyrics[:30].replace("\n", " "),
             "created": datetime.now().strftime("%H:%M:%S"),
@@ -235,17 +242,26 @@ class Main(star.Star):
         # 只保留最近 20 条记录
         while len(self._music_jobs) > 20:
             self._music_jobs.pop(next(iter(self._music_jobs)))
-        task = asyncio.create_task(self._music_task(job_id, event, lyrics, prompt))
+        task = asyncio.create_task(
+            self._music_task(job_id, event, lyrics, prompt, title)
+        )
         self._bg_tasks.add(task)
         task.add_done_callback(self._bg_tasks.discard)
         return job_id
 
     async def _music_task(
-        self, job_id: str, event: AstrMessageEvent, lyrics: str, prompt: str
+        self,
+        job_id: str,
+        event: AstrMessageEvent,
+        lyrics: str,
+        prompt: str,
+        title: str = "",
     ) -> None:
         job = self._music_jobs.get(job_id, {})
         try:
-            path = await self._generate_music(lyrics, prompt)
+            path = await self._generate_music(
+                lyrics, prompt, title=title, job_id=job_id
+            )
             await self._send_music(event, path, job_id=job_id)
             job.update(status="已完成", finished=datetime.now().strftime("%H:%M:%S"))
         except GMIError as e:
@@ -280,7 +296,8 @@ class Main(star.Star):
             return "当前没有音乐生成任务记录。"
         lines = []
         for jid, job in reversed(list(self._music_jobs.items())):
-            line = f"{jid} [{job['status']}] {job['created']} 歌词: {job['lyrics']}…"
+            label = job.get("title") or job.get("lyrics", "")
+            line = f"{jid} [{job['status']}] {job['created']} {label}…"
             if job["error"]:
                 line += f" 原因: {job['error'][:80]}"
             lines.append(line)
@@ -403,22 +420,24 @@ class Main(star.Star):
 
     @filter.llm_tool(name="gmi_generate_music")
     async def tool_generate_music(
-        self, event: AstrMessageEvent, lyrics: str, prompt: str = ""
+        self, event: AstrMessageEvent, lyrics: str, prompt: str = "", title: str = ""
     ):
         """用 MiniMax Music 3.0 生成一首完整歌曲并直接发送给用户。当用户想要创作、生成音乐或歌曲时调用；你可以先根据用户需求写好歌词再调用本工具。生成通常需要 30-60 秒。
 
         Args:
             lyrics(string): 完整歌词，用换行分隔诗句，可包含 [Verse]、[Chorus]、[Bridge]、[Intro]、[Outro] 等结构标签，1-3500 字符
             prompt(string): 音乐风格描述（曲风、情绪、乐器、节奏、人声类型等），可留空
+            title(string): 歌曲名称，将用作发送的音频文件名，建议总是提供一个贴切的歌名
         """
         # 音乐生成加发送可能超过 tool_call_timeout，放后台执行、立即返回。
         try:
             build_music_payload(lyrics, prompt)
         except GMIError as e:
             return f"音乐生成失败: {e}"
-        job_id = self._spawn_music_task(event, lyrics, prompt)
+        job_id = self._spawn_music_task(event, lyrics, prompt, title)
+        song = f"《{title.strip()}》" if title.strip() else "歌曲"
         return (
-            f"音乐生成任务已启动，任务ID: {job_id}。通常需要 1-2 分钟，"
+            f"{song}生成任务已启动，任务ID: {job_id}。通常需要 1-2 分钟，"
             "完成后会自动发送给用户。请把任务ID告知用户；"
             "用户询问进度时可调用 gmi_music_task_status 查询，无需重复生成。"
         )
