@@ -165,6 +165,47 @@ class GenerateFlowTest(unittest.TestCase):
         with self.assertRaisesRegex(GMIError, "API Key"):
             asyncio.run(client.list_models())
 
+    def test_transient_failure_is_retried(self):
+        client = self._client()
+        once = AsyncMock(
+            side_effect=[
+                GMIError(
+                    "GMI 任务failed: Music generation failed: unknown error, "
+                    "please contact us. Please try again"
+                ),
+                _detail(
+                    "success",
+                    {"media_urls": [{"id": "0", "url": "https://x/r.mp3"}]},
+                ),
+            ]
+        )
+        with (
+            patch.object(client, "_generate_once", once),
+            patch.object(gmi_client.asyncio, "sleep", AsyncMock()),
+        ):
+            detail = asyncio.run(client.generate("m", {"text": "hi"}, retries=2))
+        self.assertEqual(extract_media_urls(detail), ["https://x/r.mp3"])
+        self.assertEqual(once.await_count, 2)
+
+    def test_non_transient_failure_is_not_retried(self):
+        client = self._client()
+        once = AsyncMock(side_effect=GMIError("GMI 任务failed: content rejected"))
+        with patch.object(client, "_generate_once", once):
+            with self.assertRaises(GMIError):
+                asyncio.run(client.generate("m", {"text": "hi"}, retries=2))
+        self.assertEqual(once.await_count, 1)
+
+    def test_retries_exhausted_raises_last_transient_error(self):
+        client = self._client()
+        once = AsyncMock(side_effect=GMIError("failed: Please try again"))
+        with (
+            patch.object(client, "_generate_once", once),
+            patch.object(gmi_client.asyncio, "sleep", AsyncMock()),
+        ):
+            with self.assertRaisesRegex(GMIError, "try again"):
+                asyncio.run(client.generate("m", {"text": "hi"}, retries=2))
+        self.assertEqual(once.await_count, 3)
+
 
 if __name__ == "__main__":
     unittest.main()

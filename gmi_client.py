@@ -227,12 +227,28 @@ class GMIClient:
         model_ids = data.get("model_ids")
         return [str(m) for m in model_ids] if isinstance(model_ids, list) else []
 
-    async def generate(self, model: str, payload: dict) -> dict:
-        """Submit a request and wait until it finishes.
+    async def generate(self, model: str, payload: dict, *, retries: int = 0) -> dict:
+        """Submit a request, wait until it finishes, retry transient failures.
+
+        GMI occasionally fails whole generations with "unknown error ...
+        Please try again" during load spikes; such failures are retried up
+        to ``retries`` times. Other failures raise immediately.
 
         Returns:
             The final request detail whose ``outcome`` carries media URLs.
         """
+        for attempt in range(retries + 1):
+            try:
+                return await self._generate_once(model, payload)
+            except GMIError as exc:
+                transient = "try again" in str(exc).lower()
+                if attempt < retries and transient:
+                    await asyncio.sleep(self.poll_interval * 2)
+                    continue
+                raise
+        raise GMIError("GMI 任务重试次数耗尽")
+
+    async def _generate_once(self, model: str, payload: dict) -> dict:
         detail = await self.submit(model, payload)
         request_id = str(detail.get("request_id") or "")
         if not request_id:

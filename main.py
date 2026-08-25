@@ -90,7 +90,7 @@ class Main(star.Star):
             bitrate=self._get_int(cfg, "bitrate", 256000),
             audio_format=audio_format,
         )
-        detail = await self._client.generate(MUSIC_MODEL, payload)
+        detail = await self._client.generate(MUSIC_MODEL, payload, retries=2)
         return await self._download_first_media(detail, "music", audio_format)
 
     async def _generate_tts(self, text: str, emotion: str = "") -> Path:
@@ -113,7 +113,7 @@ class Main(star.Star):
             cfg.get("model", "minimax-tts-speech-2.8-turbo")
             or "minimax-tts-speech-2.8-turbo"
         )
-        detail = await self._client.generate(model, payload)
+        detail = await self._client.generate(model, payload, retries=1)
         return await self._download_first_media(detail, "tts", audio_format)
 
     async def _generate_voice_clone(self, text: str, source_audio: str = "") -> Path:
@@ -131,7 +131,7 @@ class Main(star.Star):
             cfg.get("model", "minimax-audio-voice-clone-speech-2.8-turbo")
             or "minimax-audio-voice-clone-speech-2.8-turbo"
         )
-        detail = await self._client.generate(model, payload)
+        detail = await self._client.generate(model, payload, retries=1)
         return await self._download_first_media(detail, "clone", "mp3")
 
     async def _download_first_media(
