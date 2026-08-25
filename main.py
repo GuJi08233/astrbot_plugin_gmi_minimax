@@ -1,7 +1,6 @@
 """GMI MiniMax 音频插件 — Music 3.0 音乐生成与 Speech 2.8 语音合成/音色克隆。"""
 
 import asyncio
-import base64
 import re
 import time
 import uuid
@@ -168,13 +167,28 @@ class Main(star.Star):
         send_as = str(self._section("music").get("send_as", "file") or "file")
         if send_as == "record":
             await event.send(MessageChain(chain=[Record(file=str(path))]))
-        else:
-            # 以 base64:// 直传文件内容：协议端（如 NapCat）常运行在独立
-            # 容器中，传本地路径会因读不到文件而 EACCES/ENOENT。
-            encoded = base64.b64encode(path.read_bytes()).decode("ascii")
-            await event.send(
-                MessageChain(chain=[File(name=path.name, file=f"base64://{encoded}")])
+            return
+        # 文件消息依赖 AstrBot 文件服务（全局配置 callback_api_base）把本地
+        # 文件转成 HTTP 链接；未配置且协议端在独立容器时，本地路径不可达。
+        if not str(self._context_config_get("callback_api_base") or "").strip():
+            logger.warning(
+                f"[{PLUGIN_NAME}] 未配置 callback_api_base，分容器部署时文件消息"
+                "可能发送失败；失败将自动降级为语音消息发送。"
             )
+        try:
+            await event.send(MessageChain(chain=[File(name=path.name, file=str(path))]))
+        except Exception as e:
+            logger.warning(
+                f"[{PLUGIN_NAME}] 文件消息发送失败（{e}），降级为语音消息发送。"
+                "如需文件形式请在 AstrBot 配置中设置 callback_api_base。"
+            )
+            await event.send(MessageChain(chain=[Record(file=str(path))]))
+
+    def _context_config_get(self, key: str):
+        try:
+            return self.context.get_config().get(key)
+        except Exception:
+            return None
 
     def _spawn_music_task(
         self, event: AstrMessageEvent, lyrics: str, prompt: str
