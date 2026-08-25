@@ -178,6 +178,16 @@ class Main(star.Star):
         try:
             await event.send(MessageChain(chain=[File(name=path.name, file=str(path))]))
         except Exception as e:
+            size_mb = path.stat().st_size / (1024 * 1024)
+            if size_mb > 2.0:
+                # 大文件转 silk 语音极慢且超 QQ 语音时长限制，硬塞语音
+                # 只会拖垮协议端，直接明确报因。
+                raise GMIError(
+                    f"文件消息发送失败（{str(e)[:120]}），且文件较大"
+                    f"（{size_mb:.1f}MB）不适合降级为语音发送。请在 AstrBot"
+                    " 全局配置中设置 callback_api_base（协议端可访问的"
+                    " AstrBot 地址，如 http://astrbot:6185）后重试"
+                ) from e
             logger.warning(
                 f"[{PLUGIN_NAME}] 文件消息发送失败（{e}），降级为语音消息发送。"
                 "如需文件形式请在 AstrBot 配置中设置 callback_api_base。"
