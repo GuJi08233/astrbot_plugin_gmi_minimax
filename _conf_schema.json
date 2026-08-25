@@ -1,0 +1,191 @@
+{
+  "api_key": {
+    "description": "GMI Cloud API Key",
+    "hint": "在 console.gmicloud.ai 获取。MiniMax Week 期间相关模型限时免费。",
+    "type": "string",
+    "default": ""
+  },
+  "api_base": {
+    "description": "GMI API 地址",
+    "hint": "默认为 https://console.gmicloud.ai，一般无需修改。",
+    "type": "string",
+    "default": "https://console.gmicloud.ai"
+  },
+  "proxy": {
+    "description": "代理地址",
+    "hint": "HTTP 代理，例如 http://127.0.0.1:7890；留空直连。",
+    "type": "string",
+    "default": ""
+  },
+  "request_timeout": {
+    "description": "单次请求超时（秒）",
+    "type": "int",
+    "default": 180
+  },
+  "poll_interval": {
+    "description": "任务轮询间隔（秒）",
+    "type": "int",
+    "default": 3
+  },
+  "poll_timeout": {
+    "description": "任务等待超时（秒）",
+    "hint": "音乐生成通常 30-60 秒完成，语音 5-15 秒；超过该时长仍未完成则报错。",
+    "type": "int",
+    "default": 300
+  },
+  "music": {
+    "description": "音乐生成 (Music 3.0)",
+    "type": "object",
+    "items": {
+      "model": {
+        "description": "音乐模型",
+        "type": "string",
+        "default": "minimax-music-3.0"
+      },
+      "format": {
+        "description": "音频格式",
+        "hint": "支持 mp3、wav、pcm。",
+        "type": "string",
+        "default": "mp3"
+      },
+      "sample_rate": {
+        "description": "采样率",
+        "hint": "可选 16000、24000、32000、44100。",
+        "type": "int",
+        "default": 44100
+      },
+      "bitrate": {
+        "description": "码率",
+        "hint": "可选 32000、64000、128000、256000，仅 mp3 生效。",
+        "type": "int",
+        "default": 256000
+      }
+    }
+  },
+  "tts": {
+    "description": "语音合成 (Speech 2.8)",
+    "type": "object",
+    "items": {
+      "model": {
+        "description": "TTS 模型",
+        "hint": "minimax-tts-speech-2.8-turbo（快）或 minimax-tts-speech-2.8-hd（高保真）。",
+        "type": "string",
+        "default": "minimax-tts-speech-2.8-turbo"
+      },
+      "voice_id": {
+        "description": "音色 ID",
+        "hint": "留空使用服务端默认音色（English_expressive_narrator）。中文场景可尝试 MiniMax 系统音色 ID。",
+        "type": "string",
+        "default": ""
+      },
+      "speed": {
+        "description": "语速",
+        "hint": "0.5~2.0。",
+        "type": "float",
+        "slider": {
+          "min": 0.5,
+          "max": 2,
+          "step": 0.1
+        },
+        "default": 1.0
+      },
+      "vol": {
+        "description": "音量",
+        "hint": "0~10。",
+        "type": "float",
+        "slider": {
+          "min": 0,
+          "max": 10,
+          "step": 0.1
+        },
+        "default": 1.0
+      },
+      "pitch": {
+        "description": "音调（半音）",
+        "type": "int",
+        "slider": {
+          "min": -12,
+          "max": 12,
+          "step": 1
+        },
+        "default": 0
+      },
+      "emotion": {
+        "description": "默认情绪",
+        "hint": "auto/calm/happy/sad/angry/fearful/disgusted/surprised；auto 由模型按文本自动选择。",
+        "type": "string",
+        "default": "auto"
+      },
+      "sound_effects": {
+        "description": "音效",
+        "hint": "留空无音效；可选 spacious_echo、auditorium_echo、lofi_telephone、robotic。",
+        "type": "string",
+        "default": ""
+      },
+      "format": {
+        "description": "音频格式",
+        "hint": "支持 mp3、flac。",
+        "type": "string",
+        "default": "mp3"
+      },
+      "sample_rate": {
+        "description": "采样率",
+        "hint": "可选 8000、16000、22050、24000、32000、44100。",
+        "type": "int",
+        "default": 32000
+      },
+      "bitrate": {
+        "description": "码率",
+        "hint": "可选 32000、64000、128000、256000，仅 mp3 生效。",
+        "type": "int",
+        "default": 128000
+      },
+      "channel": {
+        "description": "声道数",
+        "hint": "1 单声道，2 立体声。",
+        "type": "int",
+        "default": 2
+      }
+    }
+  },
+  "voice_clone": {
+    "description": "音色克隆 (Voice Clone 2.8)",
+    "type": "object",
+    "items": {
+      "model": {
+        "description": "克隆模型",
+        "hint": "minimax-audio-voice-clone-speech-2.8-turbo（快）或 minimax-audio-voice-clone-speech-2.8-hd（高保真）。",
+        "type": "string",
+        "default": "minimax-audio-voice-clone-speech-2.8-turbo"
+      },
+      "source_audio": {
+        "description": "默认参考音频 URL",
+        "hint": "要克隆音色的音频公网 URL（mp3/m4a/wav），GMI 后端会自动下载处理。/gmi clone 指令与 LLM 工具默认使用此音色。",
+        "type": "string",
+        "default": ""
+      },
+      "prompt_audio": {
+        "description": "风格提示音频 URL（可选）",
+        "hint": "定义说话风格/情绪的示例音频（短于 8 秒，mp3/m4a/wav/flac），需与下方提示文本配套填写。",
+        "type": "string",
+        "default": ""
+      },
+      "prompt_text": {
+        "description": "风格提示文本",
+        "hint": "风格提示音频对应的逐字文本，须与音频内容一致并以标点结尾；配置了提示音频时必填。",
+        "type": "string",
+        "default": ""
+      },
+      "need_noise_reduction": {
+        "description": "降噪",
+        "type": "bool",
+        "default": true
+      },
+      "need_volume_normalization": {
+        "description": "音量归一化",
+        "type": "bool",
+        "default": true
+      }
+    }
+  }
+}

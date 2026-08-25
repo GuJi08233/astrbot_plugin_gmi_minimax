@@ -1,0 +1,6 @@
+name: astrbot_plugin_gmi_minimax
+display_name: GMI MiniMax 音频
+desc: 基于 GMI Cloud 的 MiniMax Music 3.0 音乐生成与 Speech 2.8 语音合成/音色克隆，提供 /gmi 指令组和 LLM 工具
+version: v0.1.0
+author: GuJi08233
+repo: https://github.com/GuJi08233/astrbot_plugin_gmi_minimax
