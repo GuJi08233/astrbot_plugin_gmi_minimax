@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import uuid
 from pathlib import Path
 
 import aiohttp
@@ -100,6 +101,7 @@ def build_voice_clone_payload(
     text: str,
     source_audio: str,
     *,
+    voice_id: str = "",
     prompt_audio: str = "",
     prompt_text: str = "",
     need_noise_reduction: bool = True,
@@ -111,10 +113,13 @@ def build_voice_clone_payload(
     source_audio = str(source_audio or "").strip()
     if not source_audio.lower().startswith(("http://", "https://")):
         raise GMIError("音色克隆需要参考音频的 HTTP/HTTPS URL (source_audio)")
+    # 文档称 voice_id 可选，实测接口必填：须字母开头、8-256 位且不可重复。
+    voice_id = str(voice_id or "").strip() or f"astrbot_{uuid.uuid4().hex[:24]}"
 
     payload: dict = {
         "text": text,
         "source_audio": source_audio,
+        "voice_id": voice_id,
         # GMI 接口字段拼写即为 volumn。
         "need_noise_reduction": bool(need_noise_reduction),
         "need_volumn_normalization": bool(need_volume_normalization),

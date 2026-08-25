@@ -65,6 +65,20 @@ class PayloadBuilderTest(unittest.TestCase):
         self.assertTrue(payload["need_volumn_normalization"])
         self.assertNotIn("prompt_audio", payload)
 
+    def test_voice_clone_payload_generates_required_voice_id(self):
+        payload = build_voice_clone_payload("hi", "https://a.com/v.mp3")
+        voice_id = payload["voice_id"]
+        self.assertTrue(voice_id.startswith("astrbot_"))
+        self.assertGreaterEqual(len(voice_id), 8)
+        # 每次生成的 voice_id 必须唯一（接口不允许重复）。
+        other = build_voice_clone_payload("hi", "https://a.com/v.mp3")
+        self.assertNotEqual(voice_id, other["voice_id"])
+
+        explicit = build_voice_clone_payload(
+            "hi", "https://a.com/v.mp3", voice_id="my_voice_001"
+        )
+        self.assertEqual(explicit["voice_id"], "my_voice_001")
+
     def test_voice_clone_prompt_audio_requires_prompt_text(self):
         with self.assertRaises(GMIError):
             build_voice_clone_payload(
@@ -103,8 +117,9 @@ class GenerateFlowTest(unittest.TestCase):
                 "success", {"media_urls": [{"id": "0", "url": "https://x/a.mp3"}]}
             )
         )
-        with patch.object(client, "submit", submit), patch.object(
-            client, "get_request", get
+        with (
+            patch.object(client, "submit", submit),
+            patch.object(client, "get_request", get),
         ):
             detail = asyncio.run(client.generate("m", {"text": "hi"}))
         self.assertEqual(extract_media_urls(detail), ["https://x/a.mp3"])
@@ -122,18 +137,18 @@ class GenerateFlowTest(unittest.TestCase):
                 ),
             ]
         )
-        with patch.object(client, "submit", submit), patch.object(
-            client, "get_request", get
-        ), patch.object(gmi_client.asyncio, "sleep", AsyncMock()):
+        with (
+            patch.object(client, "submit", submit),
+            patch.object(client, "get_request", get),
+            patch.object(gmi_client.asyncio, "sleep", AsyncMock()),
+        ):
             detail = asyncio.run(client.generate("m", {"text": "hi"}))
         self.assertEqual(extract_media_urls(detail), ["https://x/b.mp3"])
         self.assertEqual(get.await_count, 2)
 
     def test_failed_status_raises_with_reason(self):
         client = self._client()
-        submit = AsyncMock(
-            return_value=_detail("failed", {"status": "lyrics_invalid"})
-        )
+        submit = AsyncMock(return_value=_detail("failed", {"status": "lyrics_invalid"}))
         with patch.object(client, "submit", submit):
             with self.assertRaisesRegex(GMIError, "lyrics_invalid"):
                 asyncio.run(client.generate("m", {"text": "hi"}))

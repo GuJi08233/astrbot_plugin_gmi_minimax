@@ -160,7 +160,7 @@
       },
       "source_audio": {
         "description": "默认参考音频 URL",
-        "hint": "要克隆音色的音频公网 URL（mp3/m4a/wav），GMI 后端会自动下载处理。/gmi clone 指令与 LLM 工具默认使用此音色。",
+        "hint": "要克隆音色的音频公网 URL（mp3/m4a/wav），GMI 后端会自动下载处理，建议时长 10 秒以上。/gmi clone 指令与 LLM 工具默认使用此音色。",
         "type": "string",
         "default": ""
       },
