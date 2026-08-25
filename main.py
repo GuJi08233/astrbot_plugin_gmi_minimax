@@ -1,6 +1,7 @@
 """GMI MiniMax 音频插件 — Music 3.0 音乐生成与 Speech 2.8 语音合成/音色克隆。"""
 
 import asyncio
+import base64
 import re
 import time
 import uuid
@@ -168,7 +169,12 @@ class Main(star.Star):
         if send_as == "record":
             await event.send(MessageChain(chain=[Record(file=str(path))]))
         else:
-            await event.send(MessageChain(chain=[File(name=path.name, file=str(path))]))
+            # 以 base64:// 直传文件内容：协议端（如 NapCat）常运行在独立
+            # 容器中，传本地路径会因读不到文件而 EACCES/ENOENT。
+            encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+            await event.send(
+                MessageChain(chain=[File(name=path.name, file=f"base64://{encoded}")])
+            )
 
     def _spawn_music_task(
         self, event: AstrMessageEvent, lyrics: str, prompt: str
