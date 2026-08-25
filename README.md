@@ -59,7 +59,7 @@ https://github.com/GuJi08233/astrbot_plugin_gmi_minimax
 ## 配置说明
 
 - **api_key**：GMI Cloud 的 API Key（必填）
-- **music**：模型、格式（mp3/wav/pcm）、采样率、码率
+- **music**：发送方式（文件/语音/文件+语音）、格式（mp3/wav/pcm）、采样率、码率
 - **tts**：模型（turbo/hd）、音色 ID、语速/音量/音调滑条、情绪、音效（回声/电话/机器人等）
 - **voice_clone**：模型、默认参考音频 URL（公网可访问的 mp3/m4a/wav）、可选风格提示音频、降噪与音量归一化
 

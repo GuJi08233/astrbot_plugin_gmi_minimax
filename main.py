@@ -165,34 +165,53 @@ class Main(star.Star):
         if job_id:
             await event.send(MessageChain().message(f"✅ 音乐任务 {job_id} 完成"))
         send_as = str(self._section("music").get("send_as", "file") or "file")
-        if send_as == "record":
-            await event.send(MessageChain(chain=[Record(file=str(path))]))
-            return
-        # 文件消息依赖 AstrBot 文件服务（全局配置 callback_api_base）把本地
-        # 文件转成 HTTP 链接；未配置且协议端在独立容器时，本地路径不可达。
-        if not str(self._context_config_get("callback_api_base") or "").strip():
-            logger.warning(
-                f"[{PLUGIN_NAME}] 未配置 callback_api_base，分容器部署时文件消息"
-                "可能发送失败；失败将自动降级为语音消息发送。"
-            )
-        try:
-            await event.send(MessageChain(chain=[File(name=path.name, file=str(path))]))
-        except Exception as e:
-            size_mb = path.stat().st_size / (1024 * 1024)
-            if size_mb > 2.0:
-                # 大文件转 silk 语音极慢且超 QQ 语音时长限制，硬塞语音
-                # 只会拖垮协议端，直接明确报因。
-                raise GMIError(
-                    f"文件消息发送失败（{str(e)[:120]}），且文件较大"
-                    f"（{size_mb:.1f}MB）不适合降级为语音发送。请在 AstrBot"
-                    " 全局配置中设置 callback_api_base（协议端可访问的"
-                    " AstrBot 地址，如 http://astrbot:6185）后重试"
-                ) from e
-            logger.warning(
-                f"[{PLUGIN_NAME}] 文件消息发送失败（{e}），降级为语音消息发送。"
-                "如需文件形式请在 AstrBot 配置中设置 callback_api_base。"
-            )
-            await event.send(MessageChain(chain=[Record(file=str(path))]))
+        want_file = send_as in ("file", "both")
+        want_record = send_as in ("record", "both")
+        file_sent = False
+
+        if want_file:
+            # 文件消息依赖 AstrBot 文件服务（全局配置 callback_api_base）把
+            # 本地文件转成 HTTP 链接；未配置且协议端在独立容器时路径不可达。
+            if not str(self._context_config_get("callback_api_base") or "").strip():
+                logger.warning(
+                    f"[{PLUGIN_NAME}] 未配置 callback_api_base，分容器部署时"
+                    "文件消息可能发送失败。"
+                )
+            try:
+                await event.send(
+                    MessageChain(chain=[File(name=path.name, file=str(path))])
+                )
+                file_sent = True
+            except Exception as e:
+                size_mb = path.stat().st_size / (1024 * 1024)
+                if not want_record and size_mb > 2.0:
+                    # 大文件转 silk 语音极慢且超 QQ 语音时长限制，硬塞语音
+                    # 只会拖垮协议端，直接明确报因。
+                    raise GMIError(
+                        f"文件消息发送失败（{str(e)[:120]}），且文件较大"
+                        f"（{size_mb:.1f}MB）不适合降级为语音发送。请在 AstrBot"
+                        " 全局配置中设置 callback_api_base（协议端可访问的"
+                        " AstrBot 地址，如 http://astrbot:6185）后重试"
+                    ) from e
+                logger.warning(
+                    f"[{PLUGIN_NAME}] 文件消息发送失败（{e}），尝试语音消息发送。"
+                    "如需文件形式请在 AstrBot 配置中设置 callback_api_base。"
+                )
+                want_record = True
+
+        if want_record:
+            try:
+                await event.send(MessageChain(chain=[Record(file=str(path))]))
+            except Exception as e:
+                if file_sent:
+                    # 文件版已送达，语音版失败（常见于长歌超 QQ 语音限制）
+                    # 不影响任务结果。
+                    logger.warning(
+                        f"[{PLUGIN_NAME}] 语音版发送失败（{str(e)[:120]}），"
+                        "文件版已送达，忽略。"
+                    )
+                else:
+                    raise
 
     def _context_config_get(self, key: str):
         try:
