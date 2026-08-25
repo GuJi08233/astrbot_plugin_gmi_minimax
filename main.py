@@ -23,6 +23,9 @@ from .gmi_client import (
 )
 
 PLUGIN_NAME = "astrbot_plugin_gmi_minimax"
+# QQ 语音约 60 秒上限，256kbps mp3 对应约 2MB；超限的语音 NapCat 转码
+# 会卡死甚至断线，直接跳过。
+RECORD_SIZE_LIMIT_MB = 2.0
 MUSIC_MODEL = "minimax-music-3.0"
 URL_PATTERN = re.compile(r"^https?://\S+$", re.IGNORECASE)
 
@@ -189,16 +192,6 @@ class Main(star.Star):
                 )
                 file_sent = True
             except Exception as e:
-                size_mb = path.stat().st_size / (1024 * 1024)
-                if not want_record and size_mb > 2.0:
-                    # 大文件转 silk 语音极慢且超 QQ 语音时长限制，硬塞语音
-                    # 只会拖垮协议端，直接明确报因。
-                    raise GMIError(
-                        f"文件消息发送失败（{str(e)[:120]}），且文件较大"
-                        f"（{size_mb:.1f}MB）不适合降级为语音发送。请在 AstrBot"
-                        " 全局配置中设置 callback_api_base（协议端可访问的"
-                        " AstrBot 地址，如 http://astrbot:6185）后重试"
-                    ) from e
                 logger.warning(
                     f"[{PLUGIN_NAME}] 文件消息发送失败（{e}），尝试语音消息发送。"
                     "如需文件形式请在 AstrBot 配置中设置 callback_api_base。"
@@ -206,12 +199,27 @@ class Main(star.Star):
                 want_record = True
 
         if want_record:
+            size_mb = path.stat().st_size / (1024 * 1024)
+            if size_mb > RECORD_SIZE_LIMIT_MB:
+                if file_sent:
+                    await event.send(
+                        MessageChain().message(
+                            f"ℹ️ 歌曲较长（{size_mb:.1f}MB），超过 QQ 语音时长"
+                            "限制，已跳过语音版，请查收文件。"
+                        )
+                    )
+                    return
+                raise GMIError(
+                    f"歌曲文件较大（{size_mb:.1f}MB），超过 QQ 语音约 60 秒的"
+                    "时长限制，无法以语音发送。请使用文件方式发送（分容器部署"
+                    "需在 AstrBot 全局配置中设置 callback_api_base，如"
+                    " http://astrbot:6185）"
+                )
             try:
                 await event.send(MessageChain(chain=[Record(file=str(path))]))
             except Exception as e:
                 if file_sent:
-                    # 文件版已送达，语音版失败（常见于长歌超 QQ 语音限制）
-                    # 不影响任务结果。
+                    # 文件版已送达，语音版失败不影响任务结果。
                     logger.warning(
                         f"[{PLUGIN_NAME}] 语音版发送失败（{str(e)[:120]}），"
                         "文件版已送达，忽略。"
