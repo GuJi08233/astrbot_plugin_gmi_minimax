@@ -1,12 +1,13 @@
 """GMI MiniMax 音频插件 — Music 3.0 音乐生成与 Speech 2.8 语音合成/音色克隆。"""
 
+import asyncio
 import re
 import time
 from pathlib import Path
 
 from astrbot.api import AstrBotConfig, logger, star
 from astrbot.api.event import AstrMessageEvent, MessageChain, filter
-from astrbot.core.message.components import Record
+from astrbot.core.message.components import File, Record
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
 from .gmi_client import (
@@ -37,6 +38,9 @@ class Main(star.Star):
         self._data_dir = Path(get_astrbot_data_path()) / "plugin_data" / PLUGIN_NAME
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._client = self._build_client()
+        # 音乐生成耗时可能超过 AstrBot 的 tool_call_timeout（默认 120 秒），
+        # 因此音乐统一放后台任务执行，完成后主动发送。
+        self._bg_tasks: set[asyncio.Task] = set()
 
     # ------------------------------------------------------------------ #
     # 配置
@@ -142,6 +146,43 @@ class Main(star.Star):
     async def _send_record(self, event: AstrMessageEvent, path: Path) -> None:
         await event.send(MessageChain(chain=[Record(file=str(path))]))
 
+    async def _send_music(self, event: AstrMessageEvent, path: Path) -> None:
+        """按配置以文件或语音消息发送音乐。
+
+        默认发文件：完整歌曲通常超过 QQ 语音的时长限制，且大文件转
+        silk 语音耗时很长，容易拖垮协议端。
+        """
+        send_as = str(self._section("music").get("send_as", "file") or "file")
+        if send_as == "record":
+            await event.send(MessageChain(chain=[Record(file=str(path))]))
+        else:
+            await event.send(MessageChain(chain=[File(name=path.name, file=str(path))]))
+
+    def _spawn_music_task(
+        self, event: AstrMessageEvent, lyrics: str, prompt: str
+    ) -> None:
+        task = asyncio.create_task(self._music_task(event, lyrics, prompt))
+        self._bg_tasks.add(task)
+        task.add_done_callback(self._bg_tasks.discard)
+
+    async def _music_task(
+        self, event: AstrMessageEvent, lyrics: str, prompt: str
+    ) -> None:
+        try:
+            path = await self._generate_music(lyrics, prompt)
+            await self._send_music(event, path)
+        except GMIError as e:
+            await self._notify_failure(event, f"❌ 音乐生成失败: {e}")
+        except Exception as e:
+            logger.error(f"[{PLUGIN_NAME}] 后台音乐任务异常: {e}", exc_info=True)
+            await self._notify_failure(event, f"❌ 音乐生成异常: {e}")
+
+    async def _notify_failure(self, event: AstrMessageEvent, message: str) -> None:
+        try:
+            await event.send(MessageChain().message(message))
+        except Exception as e:
+            logger.warning(f"[{PLUGIN_NAME}] 失败通知发送失败: {e}")
+
     # ------------------------------------------------------------------ #
     # 指令
     # ------------------------------------------------------------------ #
@@ -171,17 +212,13 @@ class Main(star.Star):
         else:
             prompt, lyrics = "", first_line.strip()
 
-        yield event.plain_result("🎵 正在生成音乐，通常需要 30-60 秒…")
         try:
-            path = await self._generate_music(lyrics, prompt)
+            build_music_payload(lyrics, prompt)
         except GMIError as e:
-            yield event.plain_result(f"❌ 音乐生成失败: {e}")
+            yield event.plain_result(f"❌ {e}")
             return
-        except Exception as e:
-            logger.error(f"[{PLUGIN_NAME}] 音乐生成异常: {e}", exc_info=True)
-            yield event.plain_result(f"❌ 音乐生成异常: {e}")
-            return
-        yield event.chain_result([Record(file=str(path))])
+        self._spawn_music_task(event, lyrics, prompt)
+        yield event.plain_result("🎵 音乐生成中，通常需要 1-2 分钟，完成后自动发送…")
 
     @gmi_group.command("speech")
     async def cmd_speech(self, event: AstrMessageEvent):
@@ -257,15 +294,16 @@ class Main(star.Star):
             lyrics(string): 完整歌词，用换行分隔诗句，可包含 [Verse]、[Chorus]、[Bridge]、[Intro]、[Outro] 等结构标签，1-3500 字符
             prompt(string): 音乐风格描述（曲风、情绪、乐器、节奏、人声类型等），可留空
         """
+        # 音乐生成加发送可能超过 tool_call_timeout，放后台执行、立即返回。
         try:
-            path = await self._generate_music(lyrics, prompt)
-            await self._send_record(event, path)
+            build_music_payload(lyrics, prompt)
         except GMIError as e:
             return f"音乐生成失败: {e}"
-        except Exception as e:
-            logger.error(f"[{PLUGIN_NAME}] 音乐工具异常: {e}", exc_info=True)
-            return f"音乐生成异常: {e}"
-        return "音乐已生成并发送给用户。"
+        self._spawn_music_task(event, lyrics, prompt)
+        return (
+            "音乐生成任务已在后台启动，通常需要 1-2 分钟，完成后会自动发送给用户。"
+            "请告知用户耐心等待，无需再次调用本工具。"
+        )
 
     @filter.llm_tool(name="gmi_text_to_speech")
     async def tool_text_to_speech(
@@ -305,4 +343,6 @@ class Main(star.Star):
         return "克隆语音已生成并发送给用户。"
 
     async def terminate(self):
-        pass
+        for task in list(self._bg_tasks):
+            task.cancel()
+        self._bg_tasks.clear()

@@ -37,6 +37,14 @@
     "description": "音乐生成 (Music 3.0)",
     "type": "object",
     "items": {
+      "send_as": {
+        "description": "发送方式",
+        "hint": "完整歌曲通常超过 QQ 语音的时长限制，且大文件转语音耗时长、易失败，推荐以文件发送。",
+        "type": "string",
+        "options": ["file", "record"],
+        "labels": ["文件（原音质，推荐）", "语音消息（转码，可能失败）"],
+        "default": "file"
+      },
       "format": {
         "description": "音频格式",
         "type": "string",
