@@ -19,6 +19,7 @@ from .gmi_client import (
 )
 
 PLUGIN_NAME = "astrbot_plugin_gmi_minimax"
+MUSIC_MODEL = "minimax-music-3.0"
 URL_PATTERN = re.compile(r"^https?://\S+$", re.IGNORECASE)
 
 
@@ -85,8 +86,7 @@ class Main(star.Star):
             bitrate=self._get_int(cfg, "bitrate", 256000),
             audio_format=audio_format,
         )
-        model = str(cfg.get("model", "minimax-music-3.0") or "minimax-music-3.0")
-        detail = await self._client.generate(model, payload)
+        detail = await self._client.generate(MUSIC_MODEL, payload)
         return await self._download_first_media(detail, "music", audio_format)
 
     async def _generate_tts(self, text: str, emotion: str = "") -> Path:

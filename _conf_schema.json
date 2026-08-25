@@ -37,15 +37,10 @@
     "description": "音乐生成 (Music 3.0)",
     "type": "object",
     "items": {
-      "model": {
-        "description": "音乐模型",
-        "type": "string",
-        "default": "minimax-music-3.0"
-      },
       "format": {
         "description": "音频格式",
-        "hint": "支持 mp3、wav、pcm。",
         "type": "string",
+        "options": ["mp3", "wav", "pcm"],
         "default": "mp3"
       },
       "sample_rate": {
@@ -68,8 +63,12 @@
     "items": {
       "model": {
         "description": "TTS 模型",
-        "hint": "minimax-tts-speech-2.8-turbo（快）或 minimax-tts-speech-2.8-hd（高保真）。",
         "type": "string",
+        "options": [
+          "minimax-tts-speech-2.8-turbo",
+          "minimax-tts-speech-2.8-hd"
+        ],
+        "labels": ["Speech 2.8 Turbo（快速）", "Speech 2.8 HD（高保真）"],
         "default": "minimax-tts-speech-2.8-turbo"
       },
       "voice_id": {
@@ -112,20 +111,37 @@
       },
       "emotion": {
         "description": "默认情绪",
-        "hint": "auto/calm/happy/sad/angry/fearful/disgusted/surprised；auto 由模型按文本自动选择。",
+        "hint": "auto 由模型按文本自动选择。",
         "type": "string",
+        "options": [
+          "auto",
+          "calm",
+          "happy",
+          "sad",
+          "angry",
+          "fearful",
+          "disgusted",
+          "surprised"
+        ],
         "default": "auto"
       },
       "sound_effects": {
         "description": "音效",
-        "hint": "留空无音效；可选 spacious_echo、auditorium_echo、lofi_telephone、robotic。",
         "type": "string",
+        "options": [
+          "",
+          "spacious_echo",
+          "auditorium_echo",
+          "lofi_telephone",
+          "robotic"
+        ],
+        "labels": ["无音效", "空旷回声", "礼堂回声", "低保真电话", "机器人"],
         "default": ""
       },
       "format": {
         "description": "音频格式",
-        "hint": "支持 mp3、flac。",
         "type": "string",
+        "options": ["mp3", "flac"],
         "default": "mp3"
       },
       "sample_rate": {
@@ -154,8 +170,12 @@
     "items": {
       "model": {
         "description": "克隆模型",
-        "hint": "minimax-audio-voice-clone-speech-2.8-turbo（快）或 minimax-audio-voice-clone-speech-2.8-hd（高保真）。",
         "type": "string",
+        "options": [
+          "minimax-audio-voice-clone-speech-2.8-turbo",
+          "minimax-audio-voice-clone-speech-2.8-hd"
+        ],
+        "labels": ["Voice Clone 2.8 Turbo（快速）", "Voice Clone 2.8 HD（高保真）"],
         "default": "minimax-audio-voice-clone-speech-2.8-turbo"
       },
       "source_audio": {
