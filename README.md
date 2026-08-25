@@ -29,6 +29,7 @@ https://github.com/GuJi08233/astrbot_plugin_gmi_minimax
 /gmi speech <文本>                     # 语音合成
 /gmi clone <文本>                      # 用配置的参考音频克隆音色说话
 /gmi clone <参考音频URL> <文本>         # 用指定参考音频克隆
+/gmi tasks                             # 查看最近音乐任务的状态
 /gmi models                            # 查询可用模型（验证 Key）
 ```
 
@@ -51,6 +52,7 @@ https://github.com/GuJi08233/astrbot_plugin_gmi_minimax
 | `gmi_generate_music` | AI 按用户需求写歌词并生成歌曲发送 |
 | `gmi_text_to_speech` | 将文本合成语音发送，支持情绪参数 |
 | `gmi_voice_clone_speech` | 用预设克隆音色朗读文本发送 |
+| `gmi_music_task_status` | 查询后台音乐任务进度（用户问"歌好了吗"时 AI 自动调用） |
 
 对话示例：「帮我写一首关于秋天的民谣并唱出来」——AI 会自动写词并调用音乐工具。
 
@@ -65,6 +67,6 @@ https://github.com/GuJi08233/astrbot_plugin_gmi_minimax
 
 ## 说明
 
-- GMI 的音乐生成为同步接口，通常 30-60 秒返回；语音 5-15 秒。插件按提交-轮询方式实现，超时可在配置中调整。
+- 音乐生成在后台任务中执行（避免 AstrBot 工具 120 秒超时），触发后立即返回任务 ID，完成后自动发送并附任务 ID；瞬时服务端故障（Please try again）自动重试。语音 5-15 秒为同步执行。
 - 音色克隆的参考音频必须是**公网 URL**（GMI 后端自动下载），本地文件暂不支持；实测参考音频时长需足够长（建议 10 秒以上），过短会报 `voice duration too short`。
 - 文档标注 `voice_id` 可选，实测为必填——插件已自动生成唯一 voice_id，无需关心。

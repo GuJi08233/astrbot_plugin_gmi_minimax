@@ -3,6 +3,8 @@
 import asyncio
 import re
 import time
+import uuid
+from datetime import datetime
 from pathlib import Path
 
 from astrbot.api import AstrBotConfig, logger, star
@@ -41,6 +43,8 @@ class Main(star.Star):
         # 音乐生成耗时可能超过 AstrBot 的 tool_call_timeout（默认 120 秒），
         # 因此音乐统一放后台任务执行，完成后主动发送。
         self._bg_tasks: set[asyncio.Task] = set()
+        # 音乐任务登记表：{job_id: {status, prompt, lyrics, created, finished, error}}
+        self._music_jobs: dict[str, dict] = {}
 
     # ------------------------------------------------------------------ #
     # 配置
@@ -146,12 +150,16 @@ class Main(star.Star):
     async def _send_record(self, event: AstrMessageEvent, path: Path) -> None:
         await event.send(MessageChain(chain=[Record(file=str(path))]))
 
-    async def _send_music(self, event: AstrMessageEvent, path: Path) -> None:
+    async def _send_music(
+        self, event: AstrMessageEvent, path: Path, job_id: str = ""
+    ) -> None:
         """按配置以文件或语音消息发送音乐。
 
         默认发文件：完整歌曲通常超过 QQ 语音的时长限制，且大文件转
         silk 语音耗时很长，容易拖垮协议端。
         """
+        if job_id:
+            await event.send(MessageChain().message(f"✅ 音乐任务 {job_id} 完成"))
         send_as = str(self._section("music").get("send_as", "file") or "file")
         if send_as == "record":
             await event.send(MessageChain(chain=[Record(file=str(path))]))
@@ -160,22 +168,70 @@ class Main(star.Star):
 
     def _spawn_music_task(
         self, event: AstrMessageEvent, lyrics: str, prompt: str
-    ) -> None:
-        task = asyncio.create_task(self._music_task(event, lyrics, prompt))
+    ) -> str:
+        """Start a background music job and return its job id."""
+        job_id = uuid.uuid4().hex[:6]
+        self._music_jobs[job_id] = {
+            "status": "生成中",
+            "prompt": prompt[:50],
+            "lyrics": lyrics[:30].replace("\n", " "),
+            "created": datetime.now().strftime("%H:%M:%S"),
+            "finished": "",
+            "error": "",
+        }
+        # 只保留最近 20 条记录
+        while len(self._music_jobs) > 20:
+            self._music_jobs.pop(next(iter(self._music_jobs)))
+        task = asyncio.create_task(self._music_task(job_id, event, lyrics, prompt))
         self._bg_tasks.add(task)
         task.add_done_callback(self._bg_tasks.discard)
+        return job_id
 
     async def _music_task(
-        self, event: AstrMessageEvent, lyrics: str, prompt: str
+        self, job_id: str, event: AstrMessageEvent, lyrics: str, prompt: str
     ) -> None:
+        job = self._music_jobs.get(job_id, {})
         try:
             path = await self._generate_music(lyrics, prompt)
-            await self._send_music(event, path)
+            await self._send_music(event, path, job_id=job_id)
+            job.update(status="已完成", finished=datetime.now().strftime("%H:%M:%S"))
         except GMIError as e:
-            await self._notify_failure(event, f"❌ 音乐生成失败: {e}")
+            job.update(
+                status="失败",
+                error=str(e)[:200],
+                finished=datetime.now().strftime("%H:%M:%S"),
+            )
+            await self._notify_failure(event, f"❌ 音乐任务 {job_id} 失败: {e}")
         except Exception as e:
             logger.error(f"[{PLUGIN_NAME}] 后台音乐任务异常: {e}", exc_info=True)
-            await self._notify_failure(event, f"❌ 音乐生成异常: {e}")
+            job.update(
+                status="失败",
+                error=str(e)[:200],
+                finished=datetime.now().strftime("%H:%M:%S"),
+            )
+            await self._notify_failure(event, f"❌ 音乐任务 {job_id} 异常: {e}")
+
+    def _format_music_jobs(self, task_id: str = "") -> str:
+        """Format one or all music jobs for tools and commands."""
+        if task_id:
+            job = self._music_jobs.get(task_id.strip())
+            if not job:
+                return f"未找到音乐任务 {task_id}"
+            line = f"任务 {task_id.strip()}: {job['status']}，提交于 {job['created']}"
+            if job["finished"]:
+                line += f"，结束于 {job['finished']}"
+            if job["error"]:
+                line += f"，原因: {job['error']}"
+            return line
+        if not self._music_jobs:
+            return "当前没有音乐生成任务记录。"
+        lines = []
+        for jid, job in reversed(list(self._music_jobs.items())):
+            line = f"{jid} [{job['status']}] {job['created']} 歌词: {job['lyrics']}…"
+            if job["error"]:
+                line += f" 原因: {job['error'][:80]}"
+            lines.append(line)
+        return "最近的音乐任务:\n" + "\n".join(lines)
 
     async def _notify_failure(self, event: AstrMessageEvent, message: str) -> None:
         try:
@@ -217,8 +273,11 @@ class Main(star.Star):
         except GMIError as e:
             yield event.plain_result(f"❌ {e}")
             return
-        self._spawn_music_task(event, lyrics, prompt)
-        yield event.plain_result("🎵 音乐生成中，通常需要 1-2 分钟，完成后自动发送…")
+        job_id = self._spawn_music_task(event, lyrics, prompt)
+        yield event.plain_result(
+            f"🎵 音乐生成中（任务 {job_id}），通常需要 1-2 分钟，完成后自动发送。"
+            "可用 /gmi tasks 查看进度。"
+        )
 
     @gmi_group.command("speech")
     async def cmd_speech(self, event: AstrMessageEvent):
@@ -265,6 +324,11 @@ class Main(star.Star):
             return
         yield event.chain_result([Record(file=str(path))])
 
+    @gmi_group.command("tasks")
+    async def cmd_tasks(self, event: AstrMessageEvent):
+        """查看最近的音乐生成任务状态"""
+        yield event.plain_result(self._format_music_jobs())
+
     @gmi_group.command("models")
     async def cmd_models(self, event: AstrMessageEvent):
         """查询 GMI 可用模型（验证 Key 连通）"""
@@ -299,11 +363,21 @@ class Main(star.Star):
             build_music_payload(lyrics, prompt)
         except GMIError as e:
             return f"音乐生成失败: {e}"
-        self._spawn_music_task(event, lyrics, prompt)
+        job_id = self._spawn_music_task(event, lyrics, prompt)
         return (
-            "音乐生成任务已在后台启动，通常需要 1-2 分钟，完成后会自动发送给用户。"
-            "请告知用户耐心等待，无需再次调用本工具。"
+            f"音乐生成任务已启动，任务ID: {job_id}。通常需要 1-2 分钟，"
+            "完成后会自动发送给用户。请把任务ID告知用户；"
+            "用户询问进度时可调用 gmi_music_task_status 查询，无需重复生成。"
         )
+
+    @filter.llm_tool(name="gmi_music_task_status")
+    async def tool_music_task_status(self, event: AstrMessageEvent, task_id: str = ""):
+        """查询后台音乐生成任务的进度和结果。用户询问歌曲生成进度、是否完成时调用。
+
+        Args:
+            task_id(string): 音乐任务ID；留空则返回最近全部任务的状态
+        """
+        return self._format_music_jobs(task_id)
 
     @filter.llm_tool(name="gmi_text_to_speech")
     async def tool_text_to_speech(
