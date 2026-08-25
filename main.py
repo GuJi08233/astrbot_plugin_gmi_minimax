@@ -23,8 +23,9 @@ from .gmi_client import (
 )
 
 PLUGIN_NAME = "astrbot_plugin_gmi_minimax"
-# QQ 语音约 60 秒上限，256kbps mp3 对应约 2MB；超限的语音 NapCat 转码
-# 会卡死甚至断线，直接跳过。
+# 语音版预转 QQ 原生 silk（协议端零转码）；silk 转换不可用时按原文件
+# 大小粗判，高码率 mp3 超过该体积时协议端转码易卡死。
+RECORD_MAX_SECONDS = 300
 RECORD_SIZE_LIMIT_MB = 2.0
 MUSIC_MODEL = "minimax-music-3.0"
 URL_PATTERN = re.compile(r"^https?://\S+$", re.IGNORECASE)
@@ -199,24 +200,30 @@ class Main(star.Star):
                 want_record = True
 
         if want_record:
-            size_mb = path.stat().st_size / (1024 * 1024)
-            if size_mb > RECORD_SIZE_LIMIT_MB:
+            record_path, duration = await self._prepare_record_file(path)
+            if duration > 0:
+                too_long = duration > RECORD_MAX_SECONDS
+                detail_text = f"{duration:.0f} 秒"
+            else:
+                size_mb = path.stat().st_size / (1024 * 1024)
+                too_long = size_mb > RECORD_SIZE_LIMIT_MB
+                detail_text = f"{size_mb:.1f}MB"
+            if too_long:
                 if file_sent:
                     await event.send(
                         MessageChain().message(
-                            f"ℹ️ 歌曲较长（{size_mb:.1f}MB），超过 QQ 语音时长"
-                            "限制，已跳过语音版，请查收文件。"
+                            f"ℹ️ 歌曲较长（{detail_text}），超出语音消息适用"
+                            "范围，已跳过语音版，请查收文件。"
                         )
                     )
                     return
                 raise GMIError(
-                    f"歌曲文件较大（{size_mb:.1f}MB），超过 QQ 语音约 60 秒的"
-                    "时长限制，无法以语音发送。请使用文件方式发送（分容器部署"
-                    "需在 AstrBot 全局配置中设置 callback_api_base，如"
-                    " http://astrbot:6185）"
+                    f"歌曲较长（{detail_text}），不适合以语音消息发送。"
+                    "请使用文件方式发送（分容器部署需在 AstrBot 全局配置中"
+                    "设置 callback_api_base，如 http://astrbot:6185）"
                 )
             try:
-                await event.send(MessageChain(chain=[Record(file=str(path))]))
+                await event.send(MessageChain(chain=[Record(file=str(record_path))]))
             except Exception as e:
                 if file_sent:
                     # 文件版已送达，语音版失败不影响任务结果。
@@ -226,6 +233,31 @@ class Main(star.Star):
                     )
                 else:
                     raise
+
+    async def _prepare_record_file(self, path: Path) -> tuple[Path, float]:
+        """预转 QQ 原生 silk，让协议端零转码直传。
+
+        Returns:
+            (发送用文件路径, 音频时长秒数)；转换失败时返回原文件和 0。
+        """
+        try:
+            from astrbot.core.utils.tencent_record_helper import (
+                convert_to_pcm_wav,
+                wav_to_tencent_silk,
+            )
+
+            wav_path = path.with_suffix(".pcm.wav")
+            silk_path = path.with_suffix(".silk")
+            await convert_to_pcm_wav(str(path), str(wav_path))
+            duration = await wav_to_tencent_silk(str(wav_path), str(silk_path))
+            wav_path.unlink(missing_ok=True)
+            return silk_path, float(duration or 0)
+        except Exception as e:
+            logger.warning(
+                f"[{PLUGIN_NAME}] silk 预转换失败（{str(e)[:120]}），"
+                "语音将按原格式发送并交由协议端转码。"
+            )
+            return path, 0.0
 
     def _context_config_get(self, key: str):
         try:
