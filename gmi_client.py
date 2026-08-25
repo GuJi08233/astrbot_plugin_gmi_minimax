@@ -28,7 +28,15 @@ MUSIC_PROMPT_MAX_CHARS = 2000
 
 
 class GMIError(Exception):
-    """Raised when the GMI API returns an error or an invalid response."""
+    """Raised when the GMI API returns an error or an invalid response.
+
+    ``transient`` marks failures worth retrying (network hiccups, DNS
+    resolution, HTTP 5xx); parameter/content errors stay non-transient.
+    """
+
+    def __init__(self, message: str, *, transient: bool = False) -> None:
+        super().__init__(message)
+        self.transient = transient
 
 
 def build_music_payload(
@@ -195,17 +203,23 @@ class GMIClient:
             raise GMIError("未配置 GMI API Key")
         url = f"{self.api_base}{path}"
         timeout = aiohttp.ClientTimeout(total=self.request_timeout)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.request(
-                method,
-                url,
-                json=json_body,
-                headers=self._headers(),
-                proxy=self.proxy,
-            ) as resp:
-                body = await resp.text()
-                if resp.status != 200:
-                    raise GMIError(f"GMI API HTTP {resp.status}: {body[:300]}")
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.request(
+                    method,
+                    url,
+                    json=json_body,
+                    headers=self._headers(),
+                    proxy=self.proxy,
+                ) as resp:
+                    body = await resp.text()
+                    if resp.status != 200:
+                        raise GMIError(
+                            f"GMI API HTTP {resp.status}: {body[:300]}",
+                            transient=resp.status >= 500,
+                        )
+        except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as exc:
+            raise GMIError(f"GMI 网络请求失败: {exc}", transient=True) from exc
         try:
             data = json.loads(body)
         except json.JSONDecodeError as exc:
@@ -241,7 +255,7 @@ class GMIClient:
             try:
                 return await self._generate_once(model, payload)
             except GMIError as exc:
-                transient = "try again" in str(exc).lower()
+                transient = exc.transient or "try again" in str(exc).lower()
                 if attempt < retries and transient:
                     await asyncio.sleep(self.poll_interval * 2)
                     continue
@@ -282,11 +296,22 @@ class GMIClient:
 
     async def download(self, url: str, dest: Path) -> Path:
         timeout = aiohttp.ClientTimeout(total=self.request_timeout)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(url, proxy=self.proxy) as resp:
-                if resp.status != 200:
-                    raise GMIError(f"下载音频失败: HTTP {resp.status}")
-                data = await resp.read()
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(url, proxy=self.proxy) as resp:
+                    if resp.status != 200:
+                        raise GMIError(
+                            f"下载音频失败: HTTP {resp.status}",
+                            transient=resp.status >= 500,
+                        )
+                    data = await resp.read()
+        except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as exc:
+            raise GMIError(f"下载音频失败: {exc}", transient=True) from exc
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(data)
+        # 媒体文件可能由协议端进程（另一容器）读取发送，显式放宽权限。
+        try:
+            dest.chmod(0o644)
+        except OSError:
+            pass
         return dest

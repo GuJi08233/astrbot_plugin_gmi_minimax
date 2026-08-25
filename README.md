@@ -63,7 +63,7 @@ https://github.com/GuJi08233/astrbot_plugin_gmi_minimax
 - **tts**：模型（turbo/hd）、音色 ID、语速/音量/音调滑条、情绪、音效（回声/电话/机器人等）
 - **voice_clone**：模型、默认参考音频 URL（公网可访问的 mp3/m4a/wav）、可选风格提示音频、降噪与音量归一化
 
-生成的音频保存在 `data/plugin_data/astrbot_plugin_gmi_minimax/` 下。
+生成的音频保存在 AstrBot 共享临时目录 `data/temp/` 下（协议端容器如 NapCat 需要能读取该目录才能发送文件，分容器部署时请确保 `data` 目录共享挂载）。
 
 ## 说明
 

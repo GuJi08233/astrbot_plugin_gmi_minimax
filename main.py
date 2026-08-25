@@ -10,7 +10,7 @@ from pathlib import Path
 from astrbot.api import AstrBotConfig, logger, star
 from astrbot.api.event import AstrMessageEvent, MessageChain, filter
 from astrbot.core.message.components import File, Record
-from astrbot.core.utils.astrbot_path import get_astrbot_data_path
+from astrbot.core.utils.astrbot_path import get_astrbot_temp_path
 
 from .gmi_client import (
     GMIClient,
@@ -37,8 +37,10 @@ class Main(star.Star):
     def __init__(self, context: star.Context, config: AstrBotConfig) -> None:
         super().__init__(context)
         self._config = config
-        self._data_dir = Path(get_astrbot_data_path()) / "plugin_data" / PLUGIN_NAME
-        self._data_dir.mkdir(parents=True, exist_ok=True)
+        # 媒体文件放 AstrBot 共享临时目录：协议端（如 NapCat 容器）对
+        # plugin_data 下新建的文件可能无读取权限，data/temp 是双方共享的。
+        self._media_dir = Path(get_astrbot_temp_path())
+        self._media_dir.mkdir(parents=True, exist_ok=True)
         self._client = self._build_client()
         # 音乐生成耗时可能超过 AstrBot 的 tool_call_timeout（默认 120 秒），
         # 因此音乐统一放后台任务执行，完成后主动发送。
@@ -144,7 +146,9 @@ class Main(star.Star):
         urls = extract_media_urls(detail)
         if not urls:
             raise GMIError("GMI 未返回音频链接")
-        dest = self._data_dir / f"gmi_{prefix}_{int(time.time() * 1000)}.{audio_format}"
+        dest = (
+            self._media_dir / f"gmi_{prefix}_{int(time.time() * 1000)}.{audio_format}"
+        )
         return await self._client.download(urls[0], dest)
 
     async def _send_record(self, event: AstrMessageEvent, path: Path) -> None:

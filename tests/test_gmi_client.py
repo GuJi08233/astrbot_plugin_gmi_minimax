@@ -195,6 +195,28 @@ class GenerateFlowTest(unittest.TestCase):
                 asyncio.run(client.generate("m", {"text": "hi"}, retries=2))
         self.assertEqual(once.await_count, 1)
 
+    def test_network_error_is_marked_transient_and_retried(self):
+        client = self._client()
+        once = AsyncMock(
+            side_effect=[
+                GMIError(
+                    "GMI 网络请求失败: Temporary failure in name resolution",
+                    transient=True,
+                ),
+                _detail(
+                    "success",
+                    {"media_urls": [{"id": "0", "url": "https://x/n.mp3"}]},
+                ),
+            ]
+        )
+        with (
+            patch.object(client, "_generate_once", once),
+            patch.object(gmi_client.asyncio, "sleep", AsyncMock()),
+        ):
+            detail = asyncio.run(client.generate("m", {"text": "hi"}, retries=1))
+        self.assertEqual(extract_media_urls(detail), ["https://x/n.mp3"])
+        self.assertEqual(once.await_count, 2)
+
     def test_retries_exhausted_raises_last_transient_error(self):
         client = self._client()
         once = AsyncMock(side_effect=GMIError("failed: Please try again"))
